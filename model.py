@@ -210,3 +210,5 @@ class CrossSection:
     def z(self, y_coordinate, z_coordinate) -> float:
         """Transform z coordinate to COG-centered coordinate system."""
         return (z_coordinate - self.Z1s)*math.cos(math.radians(self.alpha)) - (y_coordinate - self.Y1s)*math.sin(math.radians(self.alpha)) 
+    
+    

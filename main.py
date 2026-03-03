@@ -1,11 +1,11 @@
 from model import * 
 
-Nodes_coordinates = [[5,0],
-         [0,0],
-         [-15,0],
-         [0,29.5],
-         [-12.3,29.5],
-         [-12.3,15.75]]  #in cm
+Nodes_coordinates = [[9.5,0],
+         [5,0],
+         [-5,0],
+         [-9.5,0],
+         [-9.5,18.65],
+         [9.5,18.65]]  #in cm
 
 Nodes = []
 
@@ -18,7 +18,7 @@ for node in Nodes:
     print(node)
 
 # Create a cross-section and add nodes and elements
-thickness = 2.15  #in mm
+thickness = 0.124  #in cm
 cross_section = CrossSection(thickness)
 
 # Add all nodes to the cross-section
@@ -28,9 +28,9 @@ for node in Nodes:
 # Create elements connecting the nodes
 # Elements: horizontal connections and vertical connections
 element_connections = [
-    (1, 2), (2, 3),        # Bottom row connections
-    (2,4) ,       # Top row connections
-    (4,5), (5,6), # Vertical connections  
+    (1, 2), (3, 4),        # Bottom row connections
+    (4,5) ,       # Top row connections
+    (5,6), (6,1), # Vertical connections  
 ]
 
 element_id = 1
@@ -43,15 +43,15 @@ for start_id, end_id in element_connections:
 
 print("\nList of Elements:")
 for elem in Elements:
-    print(f"Element {elem.element_id}: Node {elem.start_node.id} -> Node {elem.end_node.id}, Length: {elem.length:.2f}, Area: {elem.area:.2f}")
+    print(f"Element {elem.element_id}: Node {elem.start_node.id} -> Node {elem.end_node.id}, Length: {elem.length:.2f} cm, Area: {elem.area:.2f} cm2")
 
-print(f"\nTotal Cross-Section Area: {cross_section.total_area:.2f}")
+print(f"\nTotal Cross-Section Area: {cross_section.total_area:.2f} cm^4")
 
-print(f"\nCOG y1 coordinate: {cross_section.Y1s}")
-print(f"\nCOG z1 coordinate: {cross_section.Z1s}")
+print(f"\nCOG y1 coordinate: {cross_section.Y1s} cm")
+print(f"\nCOG z1 coordinate: {cross_section.Z1s} cm")
 
-print(f"\nMOI along y axis: {cross_section.I_y}")
-print(f"\nMOI along z axis: {cross_section.I_z}")
+print(f"\nMOI along y axis Azz: {cross_section.I_y:.2f} cm4")
+print(f"\nMOI along z axis Ayy: {cross_section.I_z:.2f} cm4")
 
 
 #PLOTTING
@@ -67,7 +67,7 @@ fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
 for elem in Elements:
     y_coords = [elem.start_node.y1, elem.end_node.y1]
     z_coords = [elem.start_node.z1, elem.end_node.z1]
-    ax1.plot(z_coords, y_coords, 'b-', linewidth=2, label='Element' if elem == Elements[0] else '')
+    ax1.plot(z_coords, y_coords, 'b-', linewidth=cross_section.thickness, label='Element' if elem == Elements[0] else '')
 
 # Plot nodes (points)
 node_y = [node.y1 for node in Nodes]
@@ -108,7 +108,7 @@ for elem in Elements:
     z_start = cross_section.z(elem.start_node.y1, elem.start_node.z1)
     y_end = cross_section.y(elem.end_node.y1, elem.end_node.z1)
     z_end = cross_section.z(elem.end_node.y1, elem.end_node.z1)
-    ax2.plot([z_start, z_end], [y_start, y_end], 'b-', linewidth=2, label='Element' if elem == Elements[0] else '')
+    ax2.plot([z_start, z_end], [y_start, y_end], 'b-', linewidth=cross_section.thickness, label='Element' if elem == Elements[0] else '')
 
 # Plot transformed nodes (points)
 ax2.scatter(transformed_z, transformed_y, color='red', s=100, zorder=5, label='Nodes')
