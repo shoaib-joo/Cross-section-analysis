@@ -2,10 +2,12 @@ from model import *
 import cross_sections
 from visualization import plot_cross_section
 
-Nodes_coordinates = cross_sections.cross_sections["I-Section"]  #in cm
+
+Nodes_coordinates = cross_sections.cross_sections["Channel"]  #in cm
 
 Nodes = []
 
+#create node objects
 for i in range(len(Nodes_coordinates)):
     node = Node(Nodes_coordinates[i][1], Nodes_coordinates[i][0], i+1)
     Nodes.append(node)
@@ -15,7 +17,7 @@ for node in Nodes:
     print(node)
 
 # Create a cross-section and add nodes and elements
-thickness = 0.124  #in cm
+thickness = 0.124  #in cm  #constant thickness
 cross_section = CrossSection(thickness)
 
 # Add all nodes to the cross-section
@@ -24,7 +26,7 @@ for node in Nodes:
 
 # Create elements connecting the nodes
 # Elements: horizontal connections and vertical connections
-element_connections = cross_sections.element_connections["I-Section"]
+element_connections = cross_sections.element_connections["Channel"]
 
 element_id = 1
 Elements = []
