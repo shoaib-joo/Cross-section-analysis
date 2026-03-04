@@ -19,9 +19,11 @@ A Python-based tool for analyzing structural cross-sections using centerline mod
 ## File Structure
 
 ```
-├── model.py       # Core classes: Node, Element, CrossSection
-├── main.py        # Example script with visualization
-└── README.md      # Project documentation
+├── model.py           # Core classes: Node, Element, CrossSection
+├── cross_sections.py  # Predefined cross-section templates and element connections
+├── visualization.py   # Plotting functions for cross-section visualization
+├── main.py            # Example script (I-Section analysis with visualization)
+└── README.md          # Project documentation
 ```
 
 ## Classes
@@ -38,29 +40,48 @@ A Python-based tool for analyzing structural cross-sections using centerline mod
   - Properties: `total_area`, `Y1s` (COG y-coordinate), `Z1s` (COG z-coordinate), `I_y`, `I_z`, `alpha` (principal axis angle)
   - Methods: `add_node()`, `add_elements()`, `y()` (coordinate transformation), `z()` (coordinate transformation)
 
+### cross_sections.py
+
+- **cross_sections**: Dictionary of predefined cross-section coordinates
+  - Available sections: `"Custom"`, `"I-Section"`
+  
+- **element_connections**: Dictionary mapping section names to their element connection patterns
+
+### visualization.py
+
+- **plot_cross_section()**: Function to visualize cross-sections
+  - Parameters: `Nodes` (list of Node objects), `Elements` (list of Element objects), `cross_section` (CrossSection object)
+  - Displays two side-by-side plots: original and transformed coordinate systems
+
 ## Usage
 
 ### Basic Usage
 
 ```python
 from model import Node, Element, CrossSection
+from visualization import plot_cross_section
+import cross_sections
 
-# Create nodes defining the cross-section outline
-node1 = Node(y1=0, z1=9.5, node_id=1)
-node2 = Node(y1=0, z1=5, node_id=2)
-# ... add more nodes
+# Load predefined cross-section or define your own
+coordinates = cross_sections.cross_sections["I-Section"]
+element_connections = cross_sections.element_connections["I-Section"]
 
-# Create cross-section with uniform thickness
+# Create nodes
 thickness = 0.124  # in cm
 cross_section = CrossSection(thickness)
+Nodes = []
 
-# Add nodes
-for node in nodes_list:
+for i, coord in enumerate(coordinates):
+    node = Node(coord[1], coord[0], i+1)
+    Nodes.append(node)
     cross_section.add_node(node.id, node.y1, node.z1)
 
-# Create elements connecting nodes
-element = Element(element_id=1, start_node=node1, end_node=node2, thickness=thickness)
-cross_section.elements.append(element)
+# Create elements
+Elements = []
+for elem_id, (start_id, end_id) in enumerate(element_connections, 1):
+    element = Element(elem_id, cross_section.nodes[start_id], cross_section.nodes[end_id], thickness)
+    Elements.append(element)
+    cross_section.elements.append(element)
 
 # Access geometric properties
 print(f"Total Area: {cross_section.total_area}")
@@ -68,19 +89,17 @@ print(f"COG: ({cross_section.Y1s}, {cross_section.Z1s})")
 print(f"MOI Y: {cross_section.I_y}, MOI Z: {cross_section.I_z}")
 print(f"Principal Axis Angle: {cross_section.alpha}°")
 
-# Transform coordinates to COG-centered system
-y_transformed = cross_section.y(y_arbitrary, z_arbitrary)
-z_transformed = cross_section.z(y_arbitrary, z_arbitrary)
-
+# Visualize the cross-section
+plot_cross_section(Nodes, Elements, cross_section)
 ```
 
-### Example: H-Shaped Beam
+### Example: I-Section Analysis
 
-See [main.py](main.py) for a complete working example that analyzes an H-shaped cross-section:
-1. Defines 6 nodes at the corners of an H-shaped profile
-2. Creates elements connecting the nodes
+See [main.py](main.py) for a complete working example that analyzes an I-Section:
+1. Loads predefined I-Section nodes and element connections from [cross_sections.py](cross_sections.py)
+2. Creates Node and Element objects
 3. Calculates all geometric properties
-4. Displays the original and transformed coordinate systems
+4. Calls [visualization.py](visualization.py) to display the original and transformed coordinate systems
 
 ## Running the Example
 
@@ -88,11 +107,16 @@ See [main.py](main.py) for a complete working example that analyzes an H-shaped 
 python main.py
 ```
 
-This generates a figure with two side-by-side plots:
-1. **Left plot**: Original arbitrary coordinate system with COG marked
-2. **Right plot**: COG-centered coordinate system aligned with principal axes
+This script:
+1. Loads the I-Section configuration from `cross_sections.py`
+2. Creates Node and Element objects with specified thickness
+3. Calculates cross-sectional properties (area, COG, moments of inertia)
+4. Prints the results to the console
+5. Calls `plot_cross_section()` from `visualization.py` to generate a figure with two side-by-side plots:
+   - **Left plot**: Original arbitrary coordinate system with COG marked
+   - **Right plot**: COG-centered coordinate system aligned with principal axes
 
-The plots display:
+The visualization displays:
 - Structural elements (blue lines)
 - Node positions (red dots with labels)
 - Center of gravity location

@@ -1,6 +1,7 @@
 import math
 import numpy as np
 
+
 class Node:
     """Represents a point in 2D space with y and z coordinates."""
     def __init__(self,y1:float,z1:float,node_id: int):
