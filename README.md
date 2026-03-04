@@ -5,7 +5,7 @@ A Python-based tool for analyzing structural cross-sections using centerline mod
 ## Features
 
 - **Flexible Cross-Section Definition**: Define custom cross-sections using nodes and connecting elements
-- **Centerline Model**: Based on middle-line structural analysis approach with uniform element thickness
+- **Centerline Model**: Based on center-line structural analysis approach with uniform element thickness
 - **Geometric Properties Calculation**:
   - Total cross-sectional area
   - Center of gravity (COG)
@@ -30,7 +30,7 @@ A Python-based tool for analyzing structural cross-sections using centerline mod
 
 ### model.py
 
-- **Node**: Represents a point in 2D space with y and z coordinates
+- **Node**: Represents a point in 2D space with y and z coordinates 
   - Attributes: `id`, `y1`, `z1`
   
 - **Element**: Represents a structural element (line segment) connecting two nodes with uniform thickness
@@ -43,7 +43,7 @@ A Python-based tool for analyzing structural cross-sections using centerline mod
 ### cross_sections.py
 
 - **cross_sections**: Dictionary of predefined cross-section coordinates
-  - Available sections: `"Custom"`, `"I-Section"`
+  - Available sections: `"Custom"`, `"I-Section"` more to be added soon.....
   
 - **element_connections**: Dictionary mapping section names to their element connection patterns
 
@@ -144,7 +144,13 @@ Where:
 
 ## Author
 
-Created during WiSe 2026 - ModSteel Project
+Created during WiSe 2026 -
+
+## Credits
+
+The script follows coordinate system orientation and procedure using this book. 
+Steel Structures: Design using FEM  - https://onlinelibrary.wiley.com/doi/book/10.1002/9783433600771
+Author(s):Rolf Kindmann, Matthias Kraus
 
 ## License
 
