@@ -219,3 +219,145 @@ def plot_element_distributions(Elements, cross_section):
         plotter.enable_parallel_projection()
         
     plotter.show()
+
+
+def _draw_distribution_diagram(plotter, p_start, p_end, values, color, cross_section):
+    """
+    Helper: draw a smooth parabolic distribution diagram orthogonal to the element.
+    p_start, p_end: PyVista [x,y,z] endpoint arrays.
+    values: list of scalar values sampled at equal arc-length steps between p_start and p_end.
+    The diagram is built from a strip of quads (one per interval).
+    """
+    n = len(values)
+    if n < 2:
+        return
+
+    p1 = np.array(p_start, dtype=float)
+    p2 = np.array(p_end,   dtype=float)
+    vec = p2 - p1
+    length = np.linalg.norm(vec)
+    if length < 1e-12:
+        return
+
+    dir_vec = vec / length
+    perp = np.array([-dir_vec[1], dir_vec[0], 0.0])
+
+    # Sample points on the element axis
+    t_vals = np.linspace(0.0, 1.0, n)
+    base_pts = np.array([p1 + t * vec for t in t_vals])   # points on element
+    tip_pts  = np.array([base_pts[i] + float(values[i]) * perp for i in range(n)])
+
+    # Build quad strip: each segment becomes one quad
+    all_pts = []
+    faces   = []
+    pt_idx  = 0
+    for i in range(n - 1):
+        b0, b1 = base_pts[i], base_pts[i + 1]
+        t0, t1 = tip_pts[i],  tip_pts[i + 1]
+
+        # Check for sign change -> split at zero crossing
+        v0, v1 = float(values[i]), float(values[i + 1])
+        if v0 * v1 < -1e-12:
+            tc = v0 / (v0 - v1)
+            bm = b0 + tc * (b1 - b0)   # zero crossing on base
+            # Triangle A: b0, t0, bm
+            pts_a = np.vstack((b0, t0, bm)).astype(float)
+            plotter.add_mesh(pv.PolyData(pts_a, np.array([3, 0, 1, 2])),
+                             color=color, opacity=0.45, lighting=False, show_edges=False)
+            # Triangle B: bm, t1, b1
+            pts_b = np.vstack((bm, t1, b1)).astype(float)
+            plotter.add_mesh(pv.PolyData(pts_b, np.array([3, 0, 1, 2])),
+                             color=color, opacity=0.45, lighting=False, show_edges=False)
+        else:
+            pts = np.vstack((b0, b1, t1, t0)).astype(float)
+            plotter.add_mesh(pv.PolyData(pts, np.array([4, 0, 1, 2, 3])),
+                             color=color, opacity=0.45, lighting=False, show_edges=False)
+
+    # Outline: base line (element) and tip curve
+    for i in range(n - 1):
+        plotter.add_mesh(pv.Line(base_pts[i], base_pts[i + 1]), color='black', line_width=3)
+        plotter.add_mesh(pv.Line(tip_pts[i],  tip_pts[i + 1]),  color=color,   line_width=2)
+    # Closing verticals at start and end
+    plotter.add_mesh(pv.Line(base_pts[0],  tip_pts[0]),  color=color, line_width=1)
+    plotter.add_mesh(pv.Line(base_pts[-1], tip_pts[-1]), color=color, line_width=1)
+
+
+def plot_static_moment_distributions(Elements, cross_section):
+    """
+    Plot Sy and Sz static moment diagrams drawn orthogonally on the cross-section elements.
+    The diagrams are parabolic because S(s) is quadratic along a linear element.
+    """
+    # Compute profiles via BFS traversal from free ends
+    profiles = cross_section.compute_static_moments(Elements)
+
+    # Auto-scale: find max absolute value across all profiles
+    max_Sy = max(abs(v) for p in profiles.values() for v in p['Sy']) or 1.0
+    max_Sz = max(abs(v) for p in profiles.values() for v in p['Sz']) or 1.0
+
+    # Bounding box of transformed coordinates for scale target
+    all_y = [cross_section.y(n.y1, n.z1) for elem in Elements
+             for n in (elem.start_node, elem.end_node)]
+    all_z = [cross_section.z(n.y1, n.z1) for elem in Elements
+             for n in (elem.start_node, elem.end_node)]
+    cs_width = max(max(all_y) - min(all_y), max(all_z) - min(all_z))
+    target_h = 0.20 * cs_width if cs_width > 0 else 5.0
+
+    scale_Sy = target_h / max_Sy
+    scale_Sz = target_h / max_Sz
+
+    plotter = pv.Plotter(shape=(1, 2), window_size=[1600, 800])
+    titles = ['Static Moment Sy Distribution', 'Static Moment Sz Distribution']
+    colors = ['royalblue', 'firebrick']
+
+    def to_pv(y, z, x=0.0):
+        return np.array([-y, -z, x], dtype=float)
+
+    for vp_idx in range(2):
+        plotter.subplot(0, vp_idx)
+        plotter.add_text(titles[vp_idx], font_size=12, position='upper_edge')
+
+        # COG marker
+        cog_cloud = pv.PolyData(np.array([to_pv(0, 0)]))
+        plotter.add_mesh(cog_cloud, color='green', point_size=20, render_points_as_spheres=True)
+        plotter.add_point_labels(cog_cloud, ['COG'], font_size=14, text_color='green', always_visible=True)
+
+        for elem in Elements:
+            prof = profiles[elem.element_id]
+            y_s, z_s = prof['pv_start']
+            y_e, z_e = prof['pv_end']
+
+            # Transformed coordinates of the traversal direction
+            y1_t = cross_section.y(y_s, z_s)
+            z1_t = cross_section.z(y_s, z_s)
+            y2_t = cross_section.y(y_e, z_e)
+            z2_t = cross_section.z(y_e, z_e)
+
+            p_start = to_pv(y1_t, z1_t)
+            p_end   = to_pv(y2_t, z2_t)
+
+            raw_vals = prof['Sy'] if vp_idx == 0 else prof['Sz']
+            scale    = scale_Sy  if vp_idx == 0 else scale_Sz
+            scaled   = [v * scale for v in raw_vals]
+
+            _draw_distribution_diagram(plotter, p_start, p_end, scaled,
+                                       colors[vp_idx], cross_section)
+
+            # Node labels at both ends
+            plotter.add_point_labels(pv.PolyData(np.array([p_start])),
+                                     [f"N{elem.start_node.id if not prof['pv_start'] == (elem.end_node.y1, elem.end_node.z1) else elem.end_node.id}"],
+                                     font_size=12, text_color='black', shape_opacity=0, always_visible=True)
+
+            # Annotate max value on diagram
+            vals = raw_vals
+            max_i = int(np.argmax(np.abs(vals)))
+            tip_t = np.linspace(0, 1, len(vals))[max_i]
+            p_tip = p_start + tip_t * (p_end - p_start) + scaled[max_i] * np.array(
+                [-(p_end - p_start)[1], (p_end - p_start)[0], 0.0]) / max(np.linalg.norm(p_end - p_start), 1e-9)
+            plotter.add_point_labels(pv.PolyData(np.array([p_tip], dtype=float)),
+                                     [f"  {vals[max_i]:.3f}"],
+                                     font_size=13, text_color=colors[vp_idx], shape_opacity=0, always_visible=True)
+
+        plotter.view_xy()
+        plotter.enable_parallel_projection()
+
+    plotter.show()

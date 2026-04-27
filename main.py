@@ -1,6 +1,6 @@
 from model import * 
 import cross_sections
-from visualization import plot_cross_section,plot_element_distributions
+from visualization import plot_cross_section, plot_element_distributions, plot_static_moment_distributions
 
 
 Nodes_coordinates = cross_sections.cross_sections["Channel"]  #in cm
@@ -52,3 +52,4 @@ print(f"\nMOI along z axis Ayy: {cross_section.I_z:.2f} cm4")
 
 plot_cross_section(Nodes, Elements, cross_section)
 plot_element_distributions(Elements, cross_section)
+plot_static_moment_distributions(Elements, cross_section)

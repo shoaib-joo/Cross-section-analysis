@@ -210,6 +210,105 @@ class CrossSection:
     
     def z(self, y_coordinate, z_coordinate) -> float:
         """Transform z coordinate to COG-centered coordinate system."""
-        return (z_coordinate - self.Z1s)*math.cos(math.radians(self.alpha)) - (y_coordinate - self.Y1s)*math.sin(math.radians(self.alpha)) 
-    
-    
+        return (z_coordinate - self.Z1s)*math.cos(math.radians(self.alpha)) - (y_coordinate - self.Y1s)*math.sin(math.radians(self.alpha))
+
+    def compute_static_moments(self, elements: list, n_pts: int = 50) -> dict:
+        """Traverse an open thin-walled cross-section from free ends (S=0)
+        and return parabolic Sy(s) and Sz(s) profiles for every element.
+
+        S_y(s) = S_y0 + t * [z_from*s + (z_to - z_from)/(2L) * s^2]
+        S_z(s) = S_z0 + t * [y_from*s + (y_to - y_from)/(2L) * s^2]
+
+        Returns:
+            dict: element_id -> {
+                'pv_start': (y1, z1),  # traversal start coords in original CS
+                'pv_end'  : (y2, z2),  # traversal end   coords in original CS
+                's'  : np.array,       # arc-length samples [0 .. L]
+                'Sy' : list[float],    # S_y values at each sample
+                'Sz' : list[float],    # S_z values at each sample
+            }
+        """
+        # --- adjacency: node_id -> [element, ...] ---
+        adj: dict[int, list] = {}
+        for elem in elements:
+            for nid in (elem.start_node.id, elem.end_node.id):
+                adj.setdefault(nid, [])
+                if elem not in adj[nid]:
+                    adj[nid].append(elem)
+
+        # --- free ends: nodes connected to exactly one element -> S = 0 ---
+        free_ends = [nid for nid, elems in adj.items() if len(elems) == 1]
+
+        # BFS to propagate S values through nodes
+        node_Sy: dict[int, float] = {nid: 0.0 for nid in free_ends}
+        node_Sz: dict[int, float] = {nid: 0.0 for nid in free_ends}
+        elem_meta: dict[int, dict] = {}   # element_id -> {Sy0, Sz0, rev, pv_start, pv_end}
+        visited = set(free_ends)
+        queue   = list(free_ends)
+
+        while queue:
+            cur = queue.pop(0)
+            for elem in adj[cur]:
+                if elem.element_id in elem_meta:
+                    continue
+
+                rev = (elem.start_node.id != cur)
+                n_from = elem.end_node   if rev else elem.start_node
+                n_to   = elem.start_node if rev else elem.end_node
+
+                y_from_t = self.y(n_from.y1, n_from.z1)
+                z_from_t = self.z(n_from.y1, n_from.z1)
+                y_to_t   = self.y(n_to.y1,   n_to.z1)
+                z_to_t   = self.z(n_to.y1,   n_to.z1)
+
+                L = elem.length
+                t = elem.thickness
+                # Total increment across this element
+                Sy_delta = t * (z_from_t * L + (z_to_t - z_from_t) * L / 2)
+                Sz_delta = t * (y_from_t * L + (y_to_t - y_from_t) * L / 2)
+
+                elem_meta[elem.element_id] = {
+                    'Sy0'     : node_Sy[cur],
+                    'Sz0'     : node_Sz[cur],
+                    'rev'     : rev,
+                    'pv_start': (n_from.y1, n_from.z1),
+                    'pv_end'  : (n_to.y1,   n_to.z1),
+                }
+
+                if n_to.id not in visited:
+                    node_Sy[n_to.id] = node_Sy[cur] + Sy_delta
+                    node_Sz[n_to.id] = node_Sz[cur] + Sz_delta
+                    visited.add(n_to.id)
+                    queue.append(n_to.id)
+
+        # --- Build parabolic profiles ---
+        results = {}
+        for elem in elements:
+            meta = elem_meta.get(elem.element_id, {})
+            Sy0  = meta.get('Sy0', 0.0)
+            Sz0  = meta.get('Sz0', 0.0)
+            rev  = meta.get('rev', False)
+
+            n_from = elem.end_node   if rev else elem.start_node
+            n_to   = elem.start_node if rev else elem.end_node
+
+            y1_t = self.y(n_from.y1, n_from.z1)
+            z1_t = self.z(n_from.y1, n_from.z1)
+            y2_t = self.y(n_to.y1,   n_to.z1)
+            z2_t = self.z(n_to.y1,   n_to.z1)
+
+            L = elem.length
+            t = elem.thickness
+            s_arr = np.linspace(0.0, L, n_pts)
+            Sy_arr = [Sy0 + t * (z1_t * s + (z2_t - z1_t) / (2 * L) * s ** 2) for s in s_arr]
+            Sz_arr = [Sz0 + t * (y1_t * s + (y2_t - y1_t) / (2 * L) * s ** 2) for s in s_arr]
+
+            results[elem.element_id] = {
+                'pv_start': meta.get('pv_start', (n_from.y1, n_from.z1)),
+                'pv_end'  : meta.get('pv_end',   (n_to.y1,   n_to.z1)),
+                's'       : s_arr,
+                'Sy'      : Sy_arr,
+                'Sz'      : Sz_arr,
+            }
+
+        return results
