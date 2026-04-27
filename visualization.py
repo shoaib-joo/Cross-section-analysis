@@ -1,129 +1,221 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import pyvista as pv
 
 def plot_cross_section(Nodes, Elements, cross_section):
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+    # Setup PyVista Plotter with 3 subplots
+    # 0: Original Coordinates, 1: Transformed Coordinates, 2: Extruded 3D Beam
+    plotter = pv.Plotter(shape=(1, 3), window_size=[1800, 600])
 
-    # ===== ORIGINAL COORDINATE SYSTEM PLOT =====
+    def to_pv(y, z, x=0):
+        # To map standard engineering 2D views (Y left, Z down) to PyVista
+        # PV_X = -y (positive y moves left)
+        # PV_Y = -z (positive z moves down)
+        return [-y, -z, x]
+
+    # ===== VIEW 1: ORIGINAL SYSTEM =====
+    plotter.subplot(0, 0)
+    plotter.add_text('Original Coordinate System\n(Y positive left, Z positive down)', font_size=10, position='upper_edge')
+    
+    # Elements
     for elem in Elements:
-        y_coords = [elem.start_node.y1, elem.end_node.y1]
-        z_coords = [elem.start_node.z1, elem.end_node.z1]
-        ax1.plot(y_coords, z_coords, 'b-', linewidth=2, label='Element' if elem == Elements[0] else '')
+        p1 = to_pv(elem.start_node.y1, elem.start_node.z1)
+        p2 = to_pv(elem.end_node.y1, elem.end_node.z1)
+        line = pv.Line(p1, p2)
+        plotter.add_mesh(line, color='blue', line_width=5)
+        
+    # Nodes
+    pts = np.array([to_pv(node.y1, node.z1) for node in Nodes])
+    cloud = pv.PolyData(pts)
+    plotter.add_mesh(cloud, color='red', point_size=15, render_points_as_spheres=True)
+    
+    # Node Labels
+    labels = [f"N{node.id}" for node in Nodes]
+    plotter.add_point_labels(cloud, labels, point_size=18, font_size=14, text_color='black', shape_color='white', shape_opacity=0.7, always_visible=True)
 
-    node_y = [node.y1 for node in Nodes]
-    node_z = [node.z1 for node in Nodes]
-    ax1.scatter(node_y, node_z, color='red', s=100, zorder=5, label='Nodes')
+    # COG
+    cog_pt = to_pv(cross_section.Y1s, cross_section.Z1s)
+    cog_cloud = pv.PolyData(np.array([cog_pt]))
+    plotter.add_mesh(cog_cloud, color='green', point_size=20, render_points_as_spheres=True)
+    plotter.add_point_labels(cog_cloud, ['COG'], point_size=20, font_size=14, text_color='green', always_visible=True)
 
+    # Info Text
+    moi_text = f'MOI Y (I_y): {cross_section.I_y:.2f}\nMOI Z (I_z): {cross_section.I_z:.2f}\nAlpha: {cross_section.alpha:.2f} deg'
+    plotter.add_text(moi_text, font_size=10, position='lower_left')
+    
+    plotter.view_xy()
+    plotter.enable_parallel_projection()
+    
+    # ===== VIEW 2: TRANSFORMED SYSTEM =====
+    plotter.subplot(0, 1)
+    plotter.add_text('Transformed (Rotated) System', font_size=10, position='upper_edge')
+    
+    for elem in Elements:
+        y1_trans = cross_section.y(elem.start_node.y1, elem.start_node.z1)
+        z1_trans = cross_section.z(elem.start_node.y1, elem.start_node.z1)
+        y2_trans = cross_section.y(elem.end_node.y1, elem.end_node.z1)
+        z2_trans = cross_section.z(elem.end_node.y1, elem.end_node.z1)
+        
+        p1 = to_pv(y1_trans, z1_trans)
+        p2 = to_pv(y2_trans, z2_trans)
+        line = pv.Line(p1, p2)
+        plotter.add_mesh(line, color='blue', line_width=5)
+        
+    pts_trans = []
     for node in Nodes:
-        ax1.text(node.y1, node.z1 + 0.5, f'N{node.id}', ha='center', va='bottom', fontsize=7)
+        yt = cross_section.y(node.y1, node.z1)
+        zt = cross_section.z(node.y1, node.z1)
+        pts_trans.append(to_pv(yt, zt))
+    cloud_trans = pv.PolyData(np.array(pts_trans))
+    plotter.add_mesh(cloud_trans, color='red', point_size=15, render_points_as_spheres=True)
+    plotter.add_point_labels(cloud_trans, labels, point_size=18, font_size=14, text_color='black', shape_color='white', shape_opacity=0.7, always_visible=True)
 
-    ax1.scatter([cross_section.Y1s], [cross_section.Z1s], color='green', s=200, marker='x', linewidth=3, label='Center of Gravity (COG)')
-
-    ax1.set_xlabel('Y (initial arbitrary) Coordinate (mm) - Positive towards Left', fontsize=12)
-    ax1.set_ylabel('Z (initial arbitrary) Coordinate (mm) - Positive Downward', fontsize=12)
-    ax1.set_title('Original Coordinate System', fontsize=14, fontweight='bold')
-
-    moi_text = f'MOI along Y axis (I_y): {cross_section.I_y:.2f}\nMOI along Z axis (I_z): {cross_section.I_z:.2f}\nα: {cross_section.alpha:.2f}°'
-    ax1.text(0.02, 0.98, moi_text, transform=ax1.transAxes, fontsize=11, verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
-
-    ax1.grid(True, alpha=0.3)
-    ax1.legend(fontsize=11)
-    ax1.set_aspect('equal', adjustable='box')
-    ax1.invert_xaxis()  # Y positive towards left
-    ax1.invert_yaxis()  # Z positive downward
-
-    # ===== TRANSFORMED COORDINATE SYSTEM PLOT =====
-    transformed_y = [cross_section.y(node.y1, node.z1) for node in Nodes]
-    transformed_z = [cross_section.z(node.y1, node.z1) for node in Nodes]
-
+    cog_trans_cloud = pv.PolyData(np.array([to_pv(0, 0)]))
+    plotter.add_mesh(cog_trans_cloud, color='green', point_size=20, render_points_as_spheres=True)
+    plotter.add_point_labels(cog_trans_cloud, ['COG (0,0)'], point_size=20, font_size=14, text_color='green', always_visible=True)
+    
+    plotter.view_xy()
+    plotter.enable_parallel_projection()
+    
+    # ===== VIEW 3: EXTRUDED 3D BEAM =====
+    plotter.subplot(0, 2)
+    plotter.add_text('3D Extruded Beam\n(Extruded 100cm along Z axis)', font_size=10, position='upper_edge')
+    
+    extrusion_length = 100.0 # cm
+    
+    points_3d = []
+    lines_3d = []
+    pt_idx = 0
+    
     for elem in Elements:
-        y_start = cross_section.y(elem.start_node.y1, elem.start_node.z1)
-        z_start = cross_section.z(elem.start_node.y1, elem.start_node.z1)
-        y_end = cross_section.y(elem.end_node.y1, elem.end_node.z1)
-        z_end = cross_section.z(elem.end_node.y1, elem.end_node.z1)
-        ax2.plot([y_start, y_end], [z_start, z_end], 'b-', linewidth=2, label='Element' if elem == Elements[0] else '')
+        y1_trans = cross_section.y(elem.start_node.y1, elem.start_node.z1)
+        z1_trans = cross_section.z(elem.start_node.y1, elem.start_node.z1)
+        y2_trans = cross_section.y(elem.end_node.y1, elem.end_node.z1)
+        z2_trans = cross_section.z(elem.end_node.y1, elem.end_node.z1)
+        
+        points_3d.append(to_pv(y1_trans, z1_trans, 0))
+        points_3d.append(to_pv(y2_trans, z2_trans, 0))
+        
+        lines_3d.append(2)
+        lines_3d.append(pt_idx)
+        lines_3d.append(pt_idx + 1)
+        pt_idx += 2
+        
+    profile = pv.PolyData(np.array(points_3d), lines=np.array(lines_3d))
+    beam_surface = profile.extrude((0, 0, extrusion_length))
+    
+    plotter.add_mesh(beam_surface, color='steelblue', opacity=0.9, show_edges=True)
+    plotter.add_axes()
+    plotter.view_isometric()
 
-    ax2.scatter(transformed_y, transformed_z, color='red', s=100, zorder=5, label='Nodes')
-
-    for i, node in enumerate(Nodes):
-        ax2.text(transformed_y[i], transformed_z[i] + 0.5, f'N{node.id}', ha='center', va='bottom', fontsize=7)
-
-    ax2.scatter([0], [0], color='green', s=200, marker='x', linewidth=3, label='COG (Origin)')
-
-    ax2.set_xlabel('y (rotated) Coordinate (mm) - Positive towards Left', fontsize=12)
-    ax2.set_ylabel('z (rotated) Coordinate (mm) - Positive Downward', fontsize=12)
-    ax2.set_title('COG-Centered Coordinate System (Rotated)', fontsize=14, fontweight='bold')
-
-    ax2.grid(True, alpha=0.3)
-    ax2.legend(fontsize=11)
-    ax2.set_aspect('equal', adjustable='box')
-    ax2.axhline(y=0, color='k', linewidth=0.5)
-    ax2.axvline(x=0, color='k', linewidth=0.5)
-    ax2.invert_xaxis()  # y positive towards left
-    ax2.invert_yaxis()  # z positive downward
-
-    plt.tight_layout()
-    plt.show()
+    plotter.show()
     
 def plot_element_distributions(Elements, cross_section):
     """
-    For each element, plot y and z distance from COG vs distance along element.
+    For each element, plot y and z distance from COG directly on the cross-section elements.
     """
-    n_elements = len(Elements)
-    fig, axes = plt.subplots(n_elements, 1, figsize=(10, 4 * n_elements))
+    plotter = pv.Plotter(shape=(1, 2), window_size=[1600, 800])
+    
+    def to_pv(y, z, x=0):
+        # Map our Y to PV_X = -y (positive left) and Z to PV_Y = -z (positive down)
+        return [-y, -z, x]
 
-    # handle case of single element
-    if n_elements == 1:
-        axes = [axes]
-
-    for i, elem in enumerate(Elements):
-        ax = axes[i]
-
-        # transformed coordinates of start and end
+    # Find the bounding box width to scale the diagrams
+    max_val = 0.0
+    min_y = float('inf')
+    max_y = float('-inf')
+    min_z = float('inf')
+    max_z = float('-inf')
+    
+    for elem in Elements:
         y_start = cross_section.y(elem.start_node.y1, elem.start_node.z1)
         z_start = cross_section.z(elem.start_node.y1, elem.start_node.z1)
         y_end = cross_section.y(elem.end_node.y1, elem.end_node.z1)
         z_end = cross_section.z(elem.end_node.y1, elem.end_node.z1)
+        
+        max_val = max(max_val, abs(y_start), abs(y_end), abs(z_start), abs(z_end))
+        min_y = min(min_y, y_start, y_end)
+        max_y = max(max_y, y_start, y_end)
+        min_z = min(min_z, z_start, z_end)
+        max_z = max(max_z, z_start, z_end)
+        
+    cross_section_width = max(max_y - min_y, max_z - min_z)
+    
+    # Auto-scale: max diagram height = 20% of cross-section width
+    target_height = 0.20 * cross_section_width if cross_section_width > 0 else 5.0
+    scale = target_height / max_val if max_val > 0 else 1.0
 
-        # sample points along element
-        t_values = np.linspace(0, 1, 50)
-        length = elem.length
+    titles = ['Y Distance from COG Distribution', 'Z Distance from COG Distribution']
+    colors = ['blue', 'red']
+    
+    for vp_idx in [0, 1]:
+        plotter.subplot(0, vp_idx)
+        plotter.add_text(titles[vp_idx], font_size=12, position='upper_edge')
+        
+        # Plot COG
+        cog_pt = to_pv(0, 0)
+        cog_cloud = pv.PolyData(np.array([cog_pt], dtype=float))
+        plotter.add_mesh(cog_cloud, color='green', point_size=20, render_points_as_spheres=True)
+        plotter.add_point_labels(cog_cloud, ['COG (0,0)'], point_size=20, font_size=14, text_color='green', always_visible=True)
 
-        distances = []   # x-axis: distance along element
-        y_vals = []      # y distance from COG
-        z_vals = []      # z distance from COG
-
-        for t in t_values:
-            py = y_start + t * (y_end - y_start)
-            pz = z_start + t * (z_end - z_start)
-            distances.append(t * length)
-            y_vals.append(py)
-            z_vals.append(pz)
-
-        # plot both on same axes
-        ax.plot(distances, y_vals, 'b-', linewidth=2, label='y distance from COG')
-        ax.plot(distances, z_vals, 'r-', linewidth=2, label='z distance from COG')
-
-        # zero line
-        ax.axhline(y=0, color='k', linewidth=0.8, linestyle='--')
-
-        # fill between zero and values
-        ax.fill_between(distances, y_vals, 0, alpha=0.2, color='blue')
-        ax.fill_between(distances, z_vals, 0, alpha=0.2, color='red')
-
-        # mark start and end values
-        ax.annotate(f'{y_vals[0]:.2f}', (distances[0], y_vals[0]), textcoords="offset points", xytext=(5,5), color='blue', fontsize=8)
-        ax.annotate(f'{y_vals[-1]:.2f}', (distances[-1], y_vals[-1]), textcoords="offset points", xytext=(5,5), color='blue', fontsize=8)
-        ax.annotate(f'{z_vals[0]:.2f}', (distances[0], z_vals[0]), textcoords="offset points", xytext=(5,-12), color='red', fontsize=8)
-        ax.annotate(f'{z_vals[-1]:.2f}', (distances[-1], z_vals[-1]), textcoords="offset points", xytext=(5,-12), color='red', fontsize=8)
-
-        ax.set_title(f'Element {elem.element_id}: Node {elem.start_node.id} → Node {elem.end_node.id} (Length: {length:.2f} cm)', fontsize=12, fontweight='bold')
-        ax.set_xlabel('Distance along element (cm)', fontsize=10)
-        ax.set_ylabel('Distance from COG (cm)', fontsize=10)
-        ax.legend(fontsize=10)
-        ax.grid(True, alpha=0.3)
-
-    plt.suptitle('Y and Z Distances from COG per Element', fontsize=14, fontweight='bold', y=1.01)
-    plt.tight_layout()
-    plt.show()
+        for elem in Elements:
+            y1_trans = cross_section.y(elem.start_node.y1, elem.start_node.z1)
+            z1_trans = cross_section.z(elem.start_node.y1, elem.start_node.z1)
+            y2_trans = cross_section.y(elem.end_node.y1, elem.end_node.z1)
+            z2_trans = cross_section.z(elem.end_node.y1, elem.end_node.z1)
+            
+            p1 = to_pv(y1_trans, z1_trans)
+            p2 = to_pv(y2_trans, z2_trans)
+            line = pv.Line(p1, p2)
+            plotter.add_mesh(line, color='black', line_width=4)
+            
+            # Nodes labels
+            plotter.add_point_labels(pv.PolyData(np.array([p1], dtype=float)), [f"N{elem.start_node.id}"], font_size=12, text_color='black', shape_opacity=0, always_visible=True)
+            plotter.add_point_labels(pv.PolyData(np.array([p2], dtype=float)), [f"N{elem.end_node.id}"], font_size=12, text_color='black', shape_opacity=0, always_visible=True)
+            
+            # Determine values based on viewport
+            if vp_idx == 0:
+                val_A = y1_trans
+                val_B = y2_trans
+            else:
+                val_A = z1_trans
+                val_B = z2_trans
+                
+            # Direction vector
+            vec = np.array(p2) - np.array(p1)
+            length = np.linalg.norm(vec)
+            if length == 0: continue
+            
+            dir_vec = vec / length
+            
+            # Perpendicular vector in PV plane (-dy, dx, 0)
+            perp = np.array([-dir_vec[1], dir_vec[0], 0])
+            
+            # Diagram points
+            p3 = np.array(p2) + scale * val_B * perp
+            p4 = np.array(p1) + scale * val_A * perp
+            
+            # Handle zero-crossing (bowtie polygon) to prevent rendering artifacts
+            if val_A * val_B < -1e-8:
+                t = val_A / (val_A - val_B)
+                p_z = np.array(p1) + t * vec
+                points = np.vstack((p1, p2, p3, p4, p_z)).astype(float)
+                # Split into two triangles with consistent winding: [p1, p4, p_z] and [p_z, p2, p3]
+                faces = np.hstack(([3, 0, 3, 4], [3, 4, 1, 2]))
+            else:
+                points = np.vstack((p1, p2, p3, p4)).astype(float)
+                faces = np.array([4, 0, 1, 2, 3])
+            
+            diagram_surface = pv.PolyData(points, faces)
+            
+            # lighting=False is critical to prevent dark spots from 2D surface normals
+            plotter.add_mesh(diagram_surface, color=colors[vp_idx], opacity=0.4, show_edges=True, lighting=False)
+            
+            # Annotate values
+            plotter.add_point_labels(pv.PolyData(np.array([p3], dtype=float)), [f"{val_B:.2f}"], font_size=14, text_color=colors[vp_idx], shape_opacity=0, always_visible=True)
+            plotter.add_point_labels(pv.PolyData(np.array([p4], dtype=float)), [f"{val_A:.2f}"], font_size=14, text_color=colors[vp_idx], shape_opacity=0, always_visible=True)
+            
+        plotter.view_xy()
+        plotter.enable_parallel_projection()
+        
+    plotter.show()
