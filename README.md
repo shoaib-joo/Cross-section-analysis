@@ -144,7 +144,7 @@ Where:
 
 ## Author
 
-Created during WiSe 2026 -
+Created during WiSe 2026 - at Bauhaus Universitaet
 
 ## Credits
 
@@ -152,6 +152,4 @@ The script follows coordinate system orientation and procedure using this book.
 Steel Structures: Design using FEM  - https://onlinelibrary.wiley.com/doi/book/10.1002/9783433600771
 Author(s):Rolf Kindmann, Matthias Kraus
 
-## License
 
-MIT License - Feel free to use and modify
