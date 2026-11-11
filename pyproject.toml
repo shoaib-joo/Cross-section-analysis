@@ -24,6 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+validation = ["sectionproperties>=3"]
 
 [project.urls]
 Repository = "https://github.com/shoaib-joo/Cross-section-analysis"

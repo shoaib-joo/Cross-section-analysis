@@ -187,6 +187,7 @@ Stresses in a box girder under bending, shear and torsion:
 ├── visualization.py     # PyVista plots
 ├── main.py              # Command-line tool
 ├── tests/               # pytest suite checked against hand calculations
+├── validation/          # Comparison with the sectionproperties package
 └── docs/images/         # Screenshots used in this README
 ```
 
@@ -232,6 +233,8 @@ and likewise for $S_z$ with y in place of z. $S_0$ is zero at a free end. Where 
 
 Open walls contribute $l\,t^3/3$ to the torsion constant. A closed cell adds the Bredt part, $4A_m^2 / \oint ds/t$ for a single cell. For several cells the circulating shear flows $\psi_i$ follow from one equation per cell.
 
+Note on closed sections: many textbooks give Bredt's formula alone. This tool adds the $l\,t^3/3$ part of the cell walls on top of it, because the walls also twist as plates. For thin walls the difference is small (0.2 % for the 10 x 20 box with t = 0.5 cm). The two parts are available separately in `section._torsion()` as `I_T_closed` and `I_T_open`.
+
 The warping ordinate with pole D grows along a plate from *a* to *b* by
 
 $$\Delta\omega = (y_a - y_D)(z_b - z_D) - (y_b - y_D)(z_a - z_D) - \psi\,\frac{l}{t}$$
@@ -258,6 +261,51 @@ Open walls under St. Venant torsion also carry $\tau_t = |M_x|\,t / I_T$ at thei
 - The plastic section moduli refer to axes parallel to the principal axes. No interaction of internal forces is considered.
 - All plates must be connected to each other.
 
+## Validation
+
+The results are compared with [sectionproperties](https://github.com/robbievanleeuwen/section-properties), an established open-source package that meshes the solid section and solves it with finite elements. Each case uses the solid shape whose wall centerlines are the library section, with sharp corners and no fillets.
+
+| Section | Property | This tool | sectionproperties | Difference |
+|---|---|---:|---:|---:|
+| IPE 200 (no fillets) | A [cm²] | 27.724 | 27.248 | +1.7 % |
+|  | I_max [cm⁴] | 1886.298 | 1845.590 | +2.2 % |
+|  | I_min [cm⁴] | 141.667 | 141.934 | -0.2 % |
+|  | I_T [cm⁴] | 5.215 | 5.074 | +2.8 % |
+|  | I_ω [cm⁶] | 12988.089 | 12974.059 | +0.1 % |
+|  | COG to M [cm] | 0.000 | 0.000 | – |
+| Channel 5 x 10, t = 0.5 | A [cm²] | 10.000 | 10.000 | +0.0 % |
+|  | I_max [cm⁴] | 166.667 | 167.083 | -0.2 % |
+|  | I_min [cm⁴] | 26.042 | 26.224 | -0.7 % |
+|  | I_T [cm⁴] | 0.833 | 0.831 | +0.3 % |
+|  | I_ω [cm⁶] | 455.729 | 461.056 | -1.2 % |
+|  | COG to M [cm] | 3.125 | 3.103 | +0.022 cm |
+| Angle 10 x 5, t = 0.5 | A [cm²] | 7.500 | 7.500 | -0.0 % |
+|  | I_max [cm⁴] | 89.230 | 89.350 | -0.1 % |
+|  | I_min [cm⁴] | 9.728 | 9.894 | -1.7 % |
+|  | I_T [cm⁴] | 0.625 | 0.617 | +1.3 % |
+|  | I_ω [cm⁶] | 0.000 | 3.857 | see note |
+|  | COG to M [cm] | 3.436 | 3.380 | +0.056 cm |
+| Box 10 x 20, t = 0.5 | A [cm²] | 30.000 | 30.000 | -0.0 % |
+|  | I_max [cm⁴] | 1666.667 | 1668.125 | -0.1 % |
+|  | I_min [cm⁴] | 583.333 | 584.375 | -0.2 % |
+|  | I_T [cm⁴] | 1335.833 | 1355.026 | -1.4 % |
+|  | I_ω [cm⁶] | 2777.778 | 2976.193 | -6.7 % |
+|  | COG to M [cm] | 0.000 | 0.000 | – |
+
+Why the two differ:
+
+- **Plate thickness is ignored across the wall.** A centerline plate has no bending stiffness about its own axis, so the $l\,t^3/12$ terms are missing. This explains the slightly low I_min of the channel and the angle.
+- **Junctions are counted twice.** Where the web of the IPE meets the flange centerline, the area $t_w \cdot t_f / 2$ is part of both plates. This gives the +1.7 % in area and +2.2 % in I_max.
+- **Warping across the thickness.** In thin-walled theory the plates of an angle meet in one point, so it cannot warp and I_ω is exactly zero. The solid angle warps a little across its thickness (secondary warping), which the finite element model captures. The same effect accounts for the larger difference in I_ω of the box.
+- **Torsion at junctions and corners.** The finite element model includes the extra stiffness of solid junctions and the stress concentration at re-entrant corners. The centerline value $\sum l\,t^3/3$ does not.
+
+All differences shrink as the walls get thinner relative to the section size. To reproduce the table:
+
+```bash
+pip install sectionproperties
+python validation/compare_sectionproperties.py
+```
+
 ## Tests
 
 ```bash
@@ -276,3 +324,5 @@ The coordinate system and procedure follow
 ## Author
 
 [shoaib-joo](https://github.com/shoaib-joo). Created during WiSe 2026 at Bauhaus Universitaet.
+
+The implementation and the test suite were written with the assistance of an AI coding tool (Claude Code).
