@@ -1,5 +1,19 @@
+"""Centerline model of a thin-walled cross-section.
+
+Notation and sign conventions follow Kindmann & Kraus,
+"Steel Structures: Design using FEM":
+
+* ``y1``/``z1``  - arbitrary input coordinate system
+* ``_1`` suffix  - quantity referred to the arbitrary input system
+* ``_2`` suffix  - quantity referred to axes through the centre of gravity,
+                   parallel to the input axes
+* ``y``/``z``    - principal axes through the centre of gravity
+"""
+
 import math
-import numpy as np
+
+# Second moments smaller than this fraction of (Ayy + Azz) are treated as zero.
+_REL_TOL = 1e-12
 
 
 class Node:
@@ -112,7 +126,41 @@ class CrossSection:
         end = self.nodes[end_node.id]
         element = Element(id,start,end,self.thickness)
         self.elements.append(element)
-    
+
+    def add_element(self, start_id: int, end_id: int, element_id: int | None = None) -> Element:
+        """Add an element between two existing nodes, referenced by node id.
+
+        Args:
+            start_id: Id of the start node.
+            end_id: Id of the end node.
+            element_id: Optional element id. Defaults to the next free number.
+
+        Returns:
+            The newly created Element.
+        """
+        if element_id is None:
+            element_id = len(self.elements) + 1
+        element = Element(element_id, self.nodes[start_id], self.nodes[end_id], self.thickness)
+        self.elements.append(element)
+        return element
+
+    @classmethod
+    def from_geometry(cls, coordinates, connections, thickness: float) -> "CrossSection":
+        """Build a cross-section from node coordinates and element connections.
+
+        Args:
+            coordinates: Sequence of (y1, z1) pairs. Nodes are numbered from 1
+                in the order given.
+            connections: Sequence of (start_node_id, end_node_id) pairs.
+            thickness: Uniform wall thickness.
+        """
+        cross_section = cls(thickness)
+        for node_id, (y1, z1) in enumerate(coordinates, start=1):
+            cross_section.add_node(node_id, y1, z1)
+        for start_id, end_id in connections:
+            cross_section.add_element(start_id, end_id)
+        return cross_section
+
     @property     
     def total_area(self):
         """Calculate the total cross-sectional area."""
@@ -144,64 +192,85 @@ class CrossSection:
     
     @property
     def A_yy_1(self) -> float:
+        """Second moment of area  A_yy = integral(y1^2 dA)  in the input system."""
         if self.total_area == 0:
             return 0.0
         return sum(e.Ayy_1i for e in self.elements)
-    
+
     @property
     def A_zz_1(self) -> float:
+        """Second moment of area  A_zz = integral(z1^2 dA)  in the input system."""
         if self.total_area == 0:
             return 0.0
         return sum(e.Azz_1i for e in self.elements)
-    
+
     @property
     def A_yz_1(self) -> float:
+        """Product moment of area  A_yz = integral(y1*z1 dA)  in the input system."""
         if self.total_area == 0:
             return 0.0
         return sum(e.Ayz_1i for e in self.elements)
-    
-    
+
+
     #TRANSFORMATION OF COORDINATE SYSTEM CENTRE TO COG
-    
+
     @property
     def Ayz_2(self) -> float:
-        """Calculate Ayz_2"""
+        """Product moment A_yz about the COG, axes parallel to the input axes."""
         if self.total_area == 0:
             return 0.0
         return self.A_yz_1 - self.Y1s*self.Z1s*self.total_area
-    
+
     @property
     def Ayy_2(self) -> float:
-        """Calculate Ayz_2"""
+        """Second moment A_yy about the COG, axes parallel to the input axes."""
         if self.total_area == 0:
             return 0.0
         return self.A_yy_1 - (self.Y1s**2)*self.total_area
-    
+
     @property
     def Azz_2(self) -> float:
-        """Calculate Ayz_2"""
+        """Second moment A_zz about the COG, axes parallel to the input axes."""
         if self.total_area == 0:
             return 0.0
         return self.A_zz_1 - (self.Z1s**2)*self.total_area
-    
-    #CALCULATIG ALPHA
-    
+
+    #CALCULATING ALPHA
+
     @property
     def alpha(self) -> float:
-        if self.Azz_2 and self.Ayy_2 == 0:
+        """Rotation angle of the principal axes in degrees.
+
+        tan(2*alpha) = 2*A_yz / (A_yy - A_zz)
+
+        The result lies in [-45, 45] degrees, i.e. the principal axes are the
+        ones closest to the input axes, so a section that is already aligned
+        (A_yz = 0) is never rotated.
+        """
+        Ayy, Azz, Ayz = self.Ayy_2, self.Azz_2, self.Ayz_2
+        tol = _REL_TOL * (abs(Ayy) + abs(Azz))
+        if abs(Ayz) <= tol:
             return 0.0
-        return (math.degrees(math.atan((2*self.Ayz_2)/(self.Ayy_2 - self.Ayz_2))))/2
-    
+        if abs(Ayy - Azz) <= tol:
+            return math.copysign(45.0, Ayz)
+        return math.degrees(math.atan(2*Ayz / (Ayy - Azz))) / 2
+
     #CALCULATING MOMENTS OF INERTIA
-    
+
     @property
     def I_y(self) -> float:
-        return self.Azz_2*(math.cos(self.alpha)**2) + self.Azz_2*(math.sin(self.alpha)**2) + 2*self.Ayz_2*math.sin(self.alpha)*math.cos(self.alpha)
-    
+        """Principal moment of inertia about the y axis:  I_y = integral(z^2 dA)."""
+        a = math.radians(self.alpha)
+        s, c = math.sin(a), math.cos(a)
+        return self.Azz_2*c**2 + self.Ayy_2*s**2 - 2*self.Ayz_2*s*c
+
     @property
     def I_z(self) -> float:
-        return self.Ayy_2*(math.cos(self.alpha)**2) + self.Ayy_2*(math.sin(self.alpha)**2) + 2*self.Ayz_2*math.sin(self.alpha)*math.cos(self.alpha)
-   
+        """Principal moment of inertia about the z axis:  I_z = integral(y^2 dA)."""
+        a = math.radians(self.alpha)
+        s, c = math.sin(a), math.cos(a)
+        return self.Ayy_2*c**2 + self.Azz_2*s**2 + 2*self.Ayz_2*s*c
+
     #TRANSFORMATION FROM ARBITRARY SELECTED COS TO COG CENTERED COORDINATE SYSTEM
     
     def y(self, y_coordinate, z_coordinate) -> float:
@@ -223,7 +292,7 @@ class CrossSection:
             dict: element_id -> {
                 'pv_start': (y1, z1),  # traversal start coords in original CS
                 'pv_end'  : (y2, z2),  # traversal end   coords in original CS
-                's'  : np.array,       # arc-length samples [0 .. L]
+                's'  : list[float],    # arc-length samples [0 .. L]
                 'Sy' : list[float],    # S_y values at each sample
                 'Sz' : list[float],    # S_z values at each sample
             }
@@ -239,19 +308,23 @@ class CrossSection:
         # --- free ends: nodes connected to exactly one element -> S = 0 ---
         free_ends = [nid for nid, elems in adj.items() if len(elems) == 1]
 
-        # BFS to propagate S values through nodes
-        node_Sy: dict[int, float] = {nid: 0.0 for nid in free_ends}
-        node_Sz: dict[int, float] = {nid: 0.0 for nid in free_ends}
+        # Work inwards from the free ends. A node is ready once all but one of
+        # its elements have been traversed; the remaining element then starts
+        # with the SUM of everything flowing into the node (e.g. both flange
+        # halves feeding the web of an I-section).
+        # Elements inside closed cells are never reached and keep S0 = 0.
+        node_Sy: dict[int, float] = {nid: 0.0 for nid in adj}
+        node_Sz: dict[int, float] = {nid: 0.0 for nid in adj}
         elem_meta: dict[int, dict] = {}   # element_id -> {Sy0, Sz0, rev, pv_start, pv_end}
-        visited = set(free_ends)
         queue   = list(free_ends)
 
         while queue:
             cur = queue.pop(0)
-            for elem in adj[cur]:
-                if elem.element_id in elem_meta:
-                    continue
+            pending = [e for e in adj[cur] if e.element_id not in elem_meta]
+            if len(pending) != 1:
+                continue   # 0: nothing left here, >1: revisited once more branches arrive
 
+            for elem in pending:
                 rev = (elem.start_node.id != cur)
                 n_from = elem.end_node   if rev else elem.start_node
                 n_to   = elem.start_node if rev else elem.end_node
@@ -275,11 +348,9 @@ class CrossSection:
                     'pv_end'  : (n_to.y1,   n_to.z1),
                 }
 
-                if n_to.id not in visited:
-                    node_Sy[n_to.id] = node_Sy[cur] + Sy_delta
-                    node_Sz[n_to.id] = node_Sz[cur] + Sz_delta
-                    visited.add(n_to.id)
-                    queue.append(n_to.id)
+                node_Sy[n_to.id] += node_Sy[cur] + Sy_delta
+                node_Sz[n_to.id] += node_Sz[cur] + Sz_delta
+                queue.append(n_to.id)
 
         # --- Build parabolic profiles ---
         results = {}
@@ -299,7 +370,7 @@ class CrossSection:
 
             L = elem.length
             t = elem.thickness
-            s_arr = np.linspace(0.0, L, n_pts)
+            s_arr = [L * i / (n_pts - 1) for i in range(n_pts)]
             Sy_arr = [Sy0 + t * (z1_t * s + (z2_t - z1_t) / (2 * L) * s ** 2) for s in s_arr]
             Sz_arr = [Sz0 + t * (y1_t * s + (y2_t - y1_t) / (2 * L) * s ** 2) for s in s_arr]
 

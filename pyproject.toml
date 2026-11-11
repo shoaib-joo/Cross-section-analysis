@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cross-section-analysis"
+version = "0.1.0"
+description = "Section properties of thin-walled structural cross-sections using a centerline model"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "shoaib-joo" }]
+keywords = ["structural-engineering", "steel", "cross-section", "thin-walled", "pyvista"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+]
+
+# Needed for the plots. The calculations in model.py use only the standard library.
+dependencies = [
+    "numpy>=1.26",
+    "pyvista>=0.43",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.urls]
+Repository = "https://github.com/shoaib-joo/Cross-section-analysis"
+
+[project.scripts]
+cross-section = "main:main"
+
+[tool.setuptools]
+py-modules = ["model", "cross_sections", "visualization", "main"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
