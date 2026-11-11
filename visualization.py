@@ -24,10 +24,12 @@ MUTED = "#7f8ba3"
 STEEL = "#9fb4cc"
 NODE = "#ffb454"
 COG = "#5eead4"
+SHEAR_CENTRE = "#c4b5fd"
 AXIS_Y = "#ff6b8b"
 AXIS_Z = "#59c2ff"
 PANEL = "#111827"
 DIVERGING_CMAP = "coolwarm"
+SEQUENTIAL_CMAP = "plasma"
 
 
 def _to_pv(y, z, x=0.0):
@@ -53,10 +55,19 @@ def _begin_view(plotter, row, col, title, subtitle=None):
         plotter.add_text(subtitle, font_size=8, color=MUTED, position=(12, plotter.window_size[1] - 62))
 
 
-def _end_view_2d(plotter):
+def _end_view_2d(plotter, zoom=0.85, shift_up=0.0):
+    """Look straight at the section. ``shift_up`` moves the drawing up by that
+    fraction of the view height, to leave room for text below it."""
     plotter.view_xy()
     plotter.enable_parallel_projection()
-    plotter.camera.zoom(0.85)
+    plotter.camera.zoom(zoom)
+    if shift_up:
+        camera = plotter.camera
+        offset = shift_up * 2 * camera.parallel_scale
+        x, y, z = camera.position
+        fx, fy, fz = camera.focal_point
+        camera.position = (x, y - offset, z)
+        camera.focal_point = (fx, fy - offset, fz)
 
 
 def _show(plotter, screenshot):
@@ -111,6 +122,19 @@ def _draw_cog(plotter, point, label="COG"):
     _labels(plotter, [point], [f"  {label}"], color=COG, boxed=False, font_size=12)
 
 
+def _draw_centres(plotter, cog, shear_centre, size):
+    """Mark the centre of gravity and the shear centre M."""
+    cog = np.array(cog, dtype=float)
+    shear_centre = np.array(shear_centre, dtype=float)
+    if np.linalg.norm(shear_centre - cog) < 0.01 * size:
+        _draw_cog(plotter, cog, "COG = M")
+        return
+    _draw_cog(plotter, cog)
+    plotter.add_mesh(pv.PolyData(np.array([shear_centre])), color=SHEAR_CENTRE, point_size=18,
+                     render_points_as_spheres=True, lighting=False)
+    _labels(plotter, [shear_centre], ["  M"], color=SHEAR_CENTRE, boxed=False, font_size=12)
+
+
 def _draw_axes(plotter, origin, dir_y, dir_z, length, names, colors=(AXIS_Y, AXIS_Z)):
     """Two arrows from ``origin``. Directions are given in PyVista coordinates."""
     origin = np.array(origin, dtype=float)
@@ -130,7 +154,11 @@ def _info_panel(plotter, cross_section):
         f"z1,s  = {cross_section.Z1s:10.3f} cm\n"
         f"alpha = {cross_section.alpha:10.3f} deg\n"
         f"I_y   = {cross_section.I_y:10.3f} cm^4\n"
-        f"I_z   = {cross_section.I_z:10.3f} cm^4"
+        f"I_z   = {cross_section.I_z:10.3f} cm^4\n"
+        f"I_T   = {cross_section.I_T:10.3f} cm^4\n"
+        f"I_w   = {cross_section.I_omega:10.3f} cm^6\n"
+        f"y_M   = {cross_section.shear_centre[0] + 0.0:10.3f} cm\n"
+        f"z_M   = {cross_section.shear_centre[1] + 0.0:10.3f} cm"
     )
     plotter.add_text(text, font_size=10, color=TEXT, position=(14, 14), font="courier")
 
@@ -141,7 +169,7 @@ def _info_panel(plotter, cross_section):
 
 def plot_cross_section(Nodes, Elements, cross_section, screenshot=None, off_screen=False):
     """Show the section in the input system, in the principal system and as a 3D beam."""
-    plotter = _new_plotter((1, 3), [1800, 640], off_screen)
+    plotter = _new_plotter((1, 3), [1800, 700], off_screen)
     labels = [f"N{node.id}" for node in Nodes]
     alpha = math.radians(cross_section.alpha)
 
@@ -161,9 +189,9 @@ def plot_cross_section(Nodes, Elements, cross_section, screenshot=None, off_scre
                (math.sin(alpha), -math.cos(alpha), 0),
                0.45 * size, ("y", "z"))
     _draw_nodes(plotter, pts, labels, size)
-    _draw_cog(plotter, cog)
+    _draw_centres(plotter, cog, _to_pv(*cross_section.shear_centre_1), size)
     _info_panel(plotter, cross_section)
-    _end_view_2d(plotter)
+    _end_view_2d(plotter, zoom=0.62, shift_up=0.16)
 
     # ----- principal system -----
     _begin_view(plotter, 0, 1, "Principal system", f"rotated by alpha = {cross_section.alpha:.2f} deg about the COG")
@@ -173,14 +201,14 @@ def plot_cross_section(Nodes, Elements, cross_section, screenshot=None, off_scre
     _draw_plates(plotter, segments_t)
     _draw_axes(plotter, _to_pv(0, 0), (-1, 0, 0), (0, -1, 0), 0.45 * size, ("y", "z"))
     _draw_nodes(plotter, pts_t, labels, size)
-    _draw_cog(plotter, _to_pv(0, 0))
+    _draw_centres(plotter, _to_pv(0, 0), _to_pv(*cross_section.shear_centre), size)
     _end_view_2d(plotter)
 
     # ----- extruded beam -----
     beam_length = 4.0 * size
     _begin_view(plotter, 0, 2, "3D beam", f"wall thickness to scale, length {beam_length:.0f} cm")
-    t_vis = max(cross_section.thickness, 0.01 * size)   # keep very thin walls visible
-    for p1, p2 in segments_t:
+    for elem, (p1, p2) in zip(Elements, segments_t):
+        t_vis = max(elem.thickness, 0.01 * size)   # keep very thin walls visible
         vec = p2 - p1
         length = np.linalg.norm(vec)
         if length < 1e-12:
@@ -226,7 +254,7 @@ def _outward_normal(p1, p2):
     return normal
 
 
-def _draw_diagram(plotter, p1, p2, values, scale, clim, scalar_bar_title=None):
+def _draw_diagram(plotter, p1, p2, values, scale, clim, scalar_bar_title=None, cmap=DIVERGING_CMAP):
     """Draw ``values`` (sampled evenly from p1 to p2) as a filled diagram on a plate.
 
     Returns the sample positions on the diagram edge and their values.
@@ -259,9 +287,9 @@ def _draw_diagram(plotter, p1, p2, values, scale, clim, scalar_bar_title=None):
 
     bar = None
     if scalar_bar_title:
-        bar = dict(title=scalar_bar_title, color=TEXT, vertical=True, position_x=0.90, position_y=0.25,
-                   height=0.5, width=0.05, title_font_size=16, label_font_size=13, fmt="%.2f")
-    plotter.add_mesh(mesh, scalars="value", cmap=DIVERGING_CMAP, clim=clim, opacity=0.9, lighting=False,
+        bar = dict(title=scalar_bar_title, color=TEXT, vertical=True, position_x=0.86, position_y=0.25,
+                   height=0.5, width=0.045, title_font_size=13, label_font_size=12, fmt="%.2f")
+    plotter.add_mesh(mesh, scalars="value", cmap=cmap, clim=clim, opacity=0.9, lighting=False,
                      show_scalar_bar=bar is not None, scalar_bar_args=bar)
 
     plotter.add_mesh(pv.lines_from_points(tip), color=TEXT, line_width=2)
@@ -271,16 +299,19 @@ def _draw_diagram(plotter, p1, p2, values, scale, clim, scalar_bar_title=None):
     return tip + 0.0, vs
 
 
-def _diagram_view(plotter, cross_section, Elements, title, subtitle, unit_label, plate_values, fmt):
+def _diagram_view(plotter, cross_section, Elements, title, subtitle, unit_label, plate_values, fmt,
+                  sequential=False):
     """One viewport with a diagram on every plate.
 
     ``plate_values`` is a list of (p_start, p_end, values) in PyVista coordinates.
+    ``sequential`` is for values that are never negative (one-sided colour scale).
     """
     all_pts = [p for p1, p2, _ in plate_values for p in (p1, p2)]
     size = _size(all_pts)
     peak = max((abs(float(x)) for _, _, vals in plate_values for x in vals), default=0.0) or 1.0
     scale = 0.22 * size / peak
-    clim = [-peak, peak]
+    clim = [0.0, peak] if sequential else [-peak, peak]
+    cmap = SEQUENTIAL_CMAP if sequential else DIVERGING_CMAP
 
     _draw_axes(plotter, _to_pv(0, 0), (-1, 0, 0), (0, -1, 0), 0.30 * size, ("y", "z"), (MUTED, MUTED))
 
@@ -295,7 +326,7 @@ def _diagram_view(plotter, cross_section, Elements, title, subtitle, unit_label,
 
     first = True
     for p1, p2, vals in plate_values:
-        tip, vs = _draw_diagram(plotter, p1, p2, vals, scale, clim, unit_label if first else None)
+        tip, vs = _draw_diagram(plotter, p1, p2, vals, scale, clim, unit_label if first else None, cmap)
         first = False
         if not len(vs):
             continue
@@ -312,7 +343,7 @@ def _diagram_view(plotter, cross_section, Elements, title, subtitle, unit_label,
             nodes[node.id] = _to_pv(*_principal(cross_section, node))
     cloud = pv.PolyData(np.array(list(nodes.values())))
     plotter.add_mesh(cloud, color=NODE, point_size=10, render_points_as_spheres=True, lighting=False)
-    _draw_cog(plotter, _to_pv(0, 0))
+    _draw_centres(plotter, _to_pv(0, 0), _to_pv(*cross_section.shear_centre), size)
     _labels(plotter, label_pts, label_txt, font_size=11)
     _end_view_2d(plotter)
 
@@ -360,5 +391,66 @@ def plot_static_moment_distributions(Elements, cross_section, screenshot=None, o
             end = _to_pv(cross_section.y(*prof["pv_end"]), cross_section.z(*prof["pv_end"]))
             plate_values.append((start, end, prof[key]))
         _diagram_view(plotter, cross_section, Elements, title, "", unit, plate_values, "{:.2f}")
+
+    _show(plotter, screenshot)
+
+
+# ---------------------------------------------------------------------------
+# 4) Warping ordinate
+# ---------------------------------------------------------------------------
+
+def _plate_ends(cross_section, profile):
+    """PyVista start and end point of a plate in its plotted direction."""
+    start = _to_pv(cross_section.y(*profile["pv_start"]), cross_section.z(*profile["pv_start"]))
+    end = _to_pv(cross_section.y(*profile["pv_end"]), cross_section.z(*profile["pv_end"]))
+    return start, end
+
+
+def plot_warping(Elements, cross_section, screenshot=None, off_screen=False):
+    """Plot the normalised warping ordinate omega about the shear centre M."""
+    omega = cross_section.warping_ordinates()
+    plotter = _new_plotter((1, 1), [900, 800], off_screen)
+    _begin_view(plotter, 0, 0, "Warping ordinate",
+                f"about the shear centre M - I_T = {cross_section.I_T:.3f} cm^4, "
+                f"I_w = {cross_section.I_omega:.3f} cm^6")
+    plate_values = []
+    for elem in Elements:
+        start = _to_pv(*_principal(cross_section, elem.start_node))
+        end = _to_pv(*_principal(cross_section, elem.end_node))
+        values = np.linspace(omega[elem.start_node.id], omega[elem.end_node.id], 21)
+        plate_values.append((start, end, values))
+    _diagram_view(plotter, cross_section, Elements, "", "", "omega [cm^2]", plate_values, "{:.2f}")
+    _show(plotter, screenshot)
+
+
+# ---------------------------------------------------------------------------
+# 5) Stresses
+# ---------------------------------------------------------------------------
+
+def plot_stresses(Elements, cross_section, N=0.0, My=0.0, Mz=0.0, Vy=0.0, Vz=0.0, Mx=0.0, Mw=0.0,
+                  screenshot=None, off_screen=False):
+    """Plot normal stress, shear stress and von Mises stress for a set of internal forces.
+
+    Units follow the input: with cm, kN and kNcm the stresses are in kN/cm^2.
+    See ``CrossSection.compute_stresses`` for the meaning of the loads.
+    """
+    loads = dict(N=N, My=My, Mz=Mz, Vy=Vy, Vz=Vz, Mx=Mx, Mw=Mw)
+    stresses = cross_section.compute_stresses(**loads)
+    applied = ", ".join(f"{key} = {value:g}" for key, value in loads.items() if value) or "no loads"
+
+    plotter = _new_plotter((1, 3), [1800, 700], off_screen)
+    views = [("Normal stress", applied, "sigma_x [kN/cm^2]", "sigma", False),
+             ("Shear stress", "sign: direction of the shear flow along the plate", "tau [kN/cm^2]", "tau", False),
+             ("Von Mises stress", "includes the torsion shear stress at the plate surfaces",
+              "sigma_v [kN/cm^2]", "von_mises", True)]
+    for col, (title, subtitle, unit, key, sequential) in enumerate(views):
+        _begin_view(plotter, 0, col, title, subtitle)
+        plate_values = []
+        for elem in Elements:
+            profile = stresses[elem.element_id]
+            start, end = _plate_ends(cross_section, profile)
+            plate_values.append((start, end, profile[key]))
+        _diagram_view(plotter, cross_section, Elements, title, subtitle, unit, plate_values, "{:.2f}",
+                      sequential=sequential)
 
     _show(plotter, screenshot)
